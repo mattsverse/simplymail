@@ -1,0 +1,89 @@
+name: Publish Homebrew formula
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Published release tag (for example v0.1.0)
+        type: string
+        required: true
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag to point the formula at (for example v0.1.0)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# Releases queue rather than race; release.py also refuses to replace a newer formula.
+concurrency:
+  group: simplymail-homebrew
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  formula:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require tap credentials
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          [[ -n "$TAP_TOKEN" ]] || {
+            echo '::error::Set HOMEBREW_TAP_TOKEN (contents: read/write on mattsverse/homebrew-tap).'
+            exit 1
+          }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          path: source
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: mattsverse/homebrew-tap
+          ref: main
+          path: tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Verify tap push access without changing it
+        working-directory: tap
+        run: git push --dry-run origin HEAD:main
+      # The formula's checksums come from the published release, so it can't point at assets
+      # that were never published or have since changed.
+      - name: Write the formula from the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" == false ]] || {
+            echo "::error::$RELEASE_TAG is still a draft; its download URLs don't work yet."
+            exit 1
+          }
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir "$RUNNER_TEMP"
+          python3 source/scripts/release.py formula --tag "$RELEASE_TAG" \
+            --sums "$RUNNER_TEMP/SHA256SUMS" --output tap/Formula/simplymail.rb
+          cat tap/Formula/simplymail.rb
+      - name: Commit and push the formula
+        working-directory: tap
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- Formula/simplymail.rb
+          if git diff --cached --quiet; then
+            echo "The tap already has simplymail $RELEASE_TAG."
+            exit 0
+          fi
+          git commit -m "simplymail ${RELEASE_TAG#v}"
+          # Other projects' release workflows push to the same tap.
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -1,0 +1,31 @@
+[package]
+name = "simplymail-update"
+description = "Finding SimplyMail releases newer than the running one, with their changelogs, and putting them in place"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tokio-rustls.workspace = true
+rustls-platform-verifier.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ring.workspace = true
+thiserror.workspace = true
+
+# Linux releases ship the binary in a .tar.gz.
+[target.'cfg(target_os = "linux")'.dependencies]
+flate2.workspace = true
+tar.workspace = true
+
+# Windows releases ship it in a .zip, and a running .exe can't be overwritten, only moved aside.
+[target.'cfg(windows)'.dependencies]
+zip.workspace = true
+self-replace.workspace = true
+
+[lints]
+workspace = true
