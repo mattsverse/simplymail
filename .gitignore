@@ -1,0 +1,4 @@
+/target
+/dist
+.env
+__pycache__/

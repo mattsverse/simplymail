@@ -1,0 +1,55 @@
+# The .deb and .rpm packages, built by scripts/package.sh. It sets VERSION and NFPM_ARCH
+# (amd64 or arm64) and stages the binary at target/package/linux/simplymail.
+name: simplymail
+version: ${VERSION}
+arch: ${NFPM_ARCH}
+platform: linux
+section: mail
+priority: optional
+maintainer: Matteo Gassend <mgassend@gmail.com>
+description: Local, privacy-focused, no-frills email
+homepage: https://github.com/mattsverse/simplymail
+license: MIT
+
+contents:
+  - src: target/package/linux/simplymail
+    dst: /usr/bin/simplymail
+    file_info:
+      mode: 0755
+  # The file name matches the app id the window reports, so desktops pair the window with it.
+  - src: assets/linux/com.matteogassend.simplymail.desktop
+    dst: /usr/share/applications/com.matteogassend.simplymail.desktop
+    file_info:
+      mode: 0644
+  - src: README.md
+    dst: /usr/share/doc/simplymail/README.md
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/simplymail/LICENSE
+    file_info:
+      mode: 0644
+
+# Linked: glibc and libxkbcommon. Loaded at run time: Vulkan (the only Linux GPU backend), xcb,
+# fontconfig, and a Secret Service (such as GNOME Keyring) for passwords.
+overrides:
+  deb:
+    depends:
+      - libc6
+      - libxkbcommon0
+      - libvulkan1
+      - libxcb1
+      - libfontconfig1
+    recommends:
+      - mesa-vulkan-drivers
+      - gnome-keyring
+  rpm:
+    depends:
+      - glibc
+      - libxkbcommon
+      - vulkan-loader
+      - libxcb
+      - fontconfig
+    recommends:
+      - mesa-vulkan-drivers
+      - gnome-keyring

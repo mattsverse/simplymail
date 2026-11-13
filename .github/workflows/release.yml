@@ -1,0 +1,226 @@
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing version tag to build and distribute
+        type: string
+        required: true
+    secrets:
+      APPLE_CERTIFICATE_P12:
+        required: true
+      APPLE_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: true
+      RELEASE_PLEASE_TOKEN:
+        required: true
+      HOMEBREW_TAP_TOKEN:
+        required: true
+      GOOGLE_OAUTH_CLIENT_ID:
+        required: true
+      GOOGLE_OAUTH_CLIENT_SECRET:
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build or retry (for example v0.1.0)
+        type: string
+        required: true
+
+# Serialize releases so two tags cannot race on the same draft.
+concurrency:
+  group: simplymail-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Toolchains come from mise.toml; fail if mise.lock doesn't pin them.
+  MISE_LOCKED: "1"
+  RELEASE_TAG: ${{ inputs.tag }}
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  metadata:
+    runs-on: blacksmith-2vcpu-ubuntu-2604
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      state: ${{ steps.metadata.outputs.state }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      # Release jobs skip caches so a poisoned cache can't reach shipped binaries.
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: 2026.11.6
+          cache: false
+      - name: Validate version and check for an existing release
+        id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(python3 scripts/release.py version --tag "$RELEASE_TAG")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A failing API request fails the job, rather than masquerading as a missing release.
+          draft="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.tag_name == env.RELEASE_TAG) | .draft')"
+          case "$draft" in
+            false) state=published ;;
+            true) state=draft ;;
+            '') state=missing ;;
+            *) echo "Unexpected release state: $draft" >&2; exit 1 ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          if [[ "$state" == published ]]; then
+            echo "::notice::$RELEASE_TAG is already published; its assets are immutable."
+          fi
+
+  build:
+    needs: metadata
+    if: needs.metadata.outputs.state != 'published'
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: blacksmith-4vcpu-ubuntu-2604, target: x86_64-unknown-linux-gnu }
+          - { os: blacksmith-4vcpu-ubuntu-2604-arm, target: aarch64-unknown-linux-gnu }
+          - { os: blacksmith-4vcpu-windows-2025, target: x86_64-pc-windows-msvc }
+          # Blacksmith has no Windows ARM runners; stay on GitHub-hosted.
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: 2026.11.6
+          cache: false
+      - name: Add Rust target
+        run: rustup target add "${{ matrix.target }}"
+      # On Linux this also builds the .deb and .rpm packages.
+      - name: Build and package
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          SIMPLYMAIL_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          SIMPLYMAIL_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: bash scripts/package.sh "${{ matrix.target }}"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.target }}
+          # Archives and .rpm files use dashes; .deb files use underscores.
+          path: |
+            dist/simplymail-*
+            dist/simplymail_*
+          if-no-files-found: error
+          retention-days: 7
+
+  macos:
+    needs: metadata
+    if: needs.metadata.outputs.state != 'published'
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 120
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          version: 2026.11.6
+          cache: false
+      - name: Add Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Build universal app
+        env:
+          SIMPLYMAIL_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          SIMPLYMAIL_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+        run: bash scripts/bundle-macos.sh --universal
+      - name: Sign, notarize, and create the DMG
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash scripts/sign-macos.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos
+          path: |
+            dist/SimplyMail-*-universal.dmg
+            dist/SimplyMail-*-universal.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [metadata, build, macos]
+    runs-on: blacksmith-2vcpu-ubuntu-2604
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish immutable release assets
+        env:
+          # The custom token lets `release: published` trigger downstream workflows.
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_STATE: ${{ needs.metadata.outputs.state }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || { echo 'Set the RELEASE_PLEASE_TOKEN repository secret.' >&2; exit 1; }
+          cd dist
+          shopt -s nullglob
+          assets=(SimplyMail-* simplymail-* simplymail_*)
+          # 2 macOS artifacts, one archive per Linux/Windows target, and a .deb and .rpm per Linux target.
+          [[ "${#assets[@]}" == 10 ]] || { echo "Expected 10 assets, got: ${assets[*]}" >&2; exit 1; }
+          sha256sum "${assets[@]}" > SHA256SUMS
+          cat SHA256SUMS
+          if [[ "$RELEASE_STATE" == missing ]]; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --draft --title "SimplyMail $VERSION" --generate-notes
+          fi
+          # Replacing assets is allowed only while the release is still a draft.
+          [[ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" == true ]]
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}" SHA256SUMS
+          release_id="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)"
+          # Let GitHub choose the highest stable version if an older release is retried.
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            --field draft=false --raw-field make_latest=legacy --silent
+
+  # Also runs when retrying an already-published release, so a failed tap update can be redone.
+  homebrew:
+    needs: [metadata, publish]
+    if: >-
+      !cancelled() && needs.metadata.result == 'success' &&
+      (needs.publish.result == 'success' || needs.metadata.outputs.state == 'published')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/homebrew.yml
+    with:
+      tag: ${{ inputs.tag }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
