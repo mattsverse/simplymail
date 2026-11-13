@@ -1,0 +1,15 @@
+[package]
+name = "simplymail-html"
+description = "Reading HTML mail as text or Markdown, and scoring how well mail apps support a message's markup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+scraper.workspace = true
+ego-tree.workspace = true
+
+[lints]
+workspace = true

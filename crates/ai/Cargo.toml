@@ -1,0 +1,14 @@
+[package]
+name = "simplymail-ai"
+description = "Optional AI email classification and auto-replies"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+simplymail-core.workspace = true
+
+[lints]
+workspace = true

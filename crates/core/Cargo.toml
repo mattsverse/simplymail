@@ -1,0 +1,15 @@
+[package]
+name = "simplymail-core"
+description = "Domain types and traits shared by every SimplyMail frontend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+secrecy.workspace = true
+
+[lints]
+workspace = true

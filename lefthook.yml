@@ -1,0 +1,17 @@
+# Install the hooks with `lefthook install` (mise provides lefthook).
+pre-commit:
+  parallel: false # clippy runs after fmt, so it lints the formatted code
+  jobs:
+    - name: fmt
+      glob: "*.rs"
+      run: cargo fmt --all
+      stage_fixed: true
+
+    - name: clippy
+      glob: "{*.rs,Cargo.toml,Cargo.lock,clippy.toml}"
+      run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+commit-msg:
+  jobs:
+    - name: conventional-commit
+      run: cog verify --ignore-merge-commits --ignore-fixup-commits --file {1}

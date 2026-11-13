@@ -1,0 +1,149 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+default-members = ["crates/*", "apps/desktop"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+# internal
+simplymail-core = { path = "crates/core" }
+simplymail-mail = { path = "crates/mail" }
+simplymail-store = { path = "crates/store" }
+simplymail-ai = { path = "crates/ai" }
+simplymail-secrets = { path = "crates/secrets" }
+simplymail-app = { path = "crates/app" }
+simplymail-html = { path = "crates/html" }
+
+# shared
+thiserror = "2"
+secrecy = "0.10"
+
+# mail
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls-platform-verifier = "0.7"
+futures = "0.3"
+mail-parser = "1"
+# No `hostname`: the machine's name would leak into EHLO and Message-ID.
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "tokio1-rustls", "rustls-platform-verifier", "ring"] }
+fastrand = "2"
+# Google OAuth: token requests over HTTPS, with the same ring + platform-verifier TLS as IMAP.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+ring = "0.17"
+
+# html
+scraper = { version = "0.29", default-features = false, features = ["deterministic"] }
+ego-tree = "0.11"
+
+# store
+rusqlite = { version = "0.42", features = ["bundled"] }
+
+# paths and dates
+directories = "6"
+jiff = "0.2"
+
+# secrets: keyring-core plus one native store per OS
+keyring-core = "1"
+apple-native-keyring-store = "1"
+windows-native-keyring-store = "1"
+zbus-secret-service-keyring-store = "1"
+
+# ui
+# Rune is pre-release: pin a rev of `dev` (never rewritten). Bump together with the patches below.
+rune = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+rune-kit = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+
+# Rune ships patched copies of these crates and requires apps that build it to apply them too,
+# since a dependency's [patch] doesn't reach the workspace depending on it. Keep the rev in sync with `rune`.
+[patch.crates-io]
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+winit = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "72327edc0028bc472680d11c2ee24ffea883072e" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+# Strictest practical clippy: every non-restriction group, plus a curated set of restriction lints.
+# (Enabling `restriction` wholesale is unsupported: its lints contradict each other.)
+# The hook runs clippy with `-D warnings`, so every warning blocks a commit.
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Rune and its GPU stack pull duplicate versions we can't control.
+multiple_crate_versions = "allow"
+# Contradicts rustc's `unreachable_pub` (enabled above), which asks for `pub(crate)` in private modules.
+redundant_pub_crate = "allow"
+
+# restriction
+allow_attributes_without_reason = "warn"
+as_conversions = "warn"
+clone_on_ref_ptr = "warn"
+dbg_macro = "warn"
+empty_drop = "warn"
+empty_structs_with_brackets = "warn"
+exit = "warn"
+expect_used = "warn"
+filetype_is_file = "warn"
+get_unwrap = "warn"
+if_then_some_else_none = "warn"
+indexing_slicing = "warn"
+let_underscore_must_use = "warn"
+lossy_float_literal = "warn"
+map_err_ignore = "warn"
+mem_forget = "warn"
+missing_assert_message = "warn"
+mixed_read_write_in_expression = "warn"
+mod_module_files = "warn"
+multiple_inherent_impl = "warn"
+panic = "warn"
+panic_in_result_fn = "warn"
+print_stderr = "warn"
+print_stdout = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+redundant_type_annotations = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+same_name_method = "warn"
+self_named_module_files = "allow" # pairs with mod_module_files: use `foo.rs` + `foo/`, not `foo/mod.rs`
+str_to_string = "warn"
+string_add = "warn"
+string_lit_chars_any = "warn"
+tests_outside_test_module = "warn"
+todo = "warn"
+try_err = "warn"
+undocumented_unsafe_blocks = "warn"
+unimplemented = "warn"
+unnecessary_safety_comment = "warn"
+unnecessary_safety_doc = "warn"
+unnecessary_self_imports = "warn"
+unneeded_field_pattern = "warn"
+unreachable = "warn"
+unseparated_literal_suffix = "warn"
+unused_result_ok = "warn"
+unwrap_in_result = "warn"
+unwrap_used = "warn"
+verbose_file_reads = "warn"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

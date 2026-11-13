@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SimplyMail
+GenericName=Mail Client
+Comment=Local, privacy-focused, no-frills email
+Exec=simplymail
+Terminal=false
+Categories=Network;Email;Office;
+Keywords=email;mail;imap;smtp;gmail;
+StartupWMClass=com.matteogassend.simplymail
