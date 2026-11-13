@@ -1,0 +1,22 @@
+[package]
+name = "simplymail-app"
+description = "What every SimplyMail frontend does the same way: where data lives, adding accounts, and keeping mailboxes in sync"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+simplymail-core.workspace = true
+simplymail-mail.workspace = true
+simplymail-store.workspace = true
+simplymail-secrets.workspace = true
+simplymail-html.workspace = true
+tokio.workspace = true
+directories.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
